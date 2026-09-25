@@ -1,0 +1,8 @@
+{
+  "name": "Remix Wing AI - Business Management & POS Platform",
+  "description": "Retail POS, inventory, sales tracking, expenses, cash reconciliation, staff management, and WhatsApp reporting with user login and backend for VPS deployment.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

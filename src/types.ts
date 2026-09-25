@@ -1,5 +1,14 @@
 export type UserRole = 'BUSINESS_OWNER' | 'MANAGER' | 'CASHIER' | 'STAFF';
 
+export interface RolePermissions {
+  canViewDashboard: boolean;
+  canManageExpenses: boolean;
+  canPerformReconciliation: boolean;
+  canManagePaymentMethods: boolean;
+  canManageStock: boolean;
+  canManageStaff: boolean;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -8,6 +17,8 @@ export interface User {
   phone?: string;
   avatar?: string;
   token?: string;
+  pin?: string;
+  permissions?: RolePermissions;
   createdAt: string;
 }
 
@@ -49,6 +60,20 @@ export interface PaymentGatewayConfig {
   testMode: boolean;
   momoEnabled: boolean;
   cardEnabled: boolean;
+  paystackVerified?: boolean;
+  paystackAccountId?: string;
+}
+
+export interface PrinterConfig {
+  connectionType: 'BLUETOOTH' | 'WIFI' | 'USB' | 'BROWSER';
+  deviceName?: string;
+  ipAddress?: string;
+  port?: number;
+  paperWidth: '58mm' | '80mm';
+  isConnected: boolean;
+  autoPrintReceipt: boolean;
+  autoPrintDailyClose: boolean;
+  lastPrintedAt?: string;
 }
 
 export interface SubscriptionConfig {
@@ -75,6 +100,7 @@ export interface BusinessProfile {
   whatsAppAutomation?: WhatsAppAutomationConfig;
   paymentGateway?: PaymentGatewayConfig;
   subscription?: SubscriptionConfig;
+  printer?: PrinterConfig;
   createdAt?: string;
 }
 
@@ -207,6 +233,7 @@ export interface StaffMember {
   phone: string;
   role: UserRole;
   pin: string;
+  permissions?: RolePermissions;
   status: 'ACTIVE' | 'INACTIVE';
   totalSalesCount: number;
   totalSalesRevenue: number;

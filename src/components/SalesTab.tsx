@@ -17,22 +17,40 @@ import {
   ShoppingBag,
   Clock,
   User as UserIcon,
-  CheckCircle2
+  CheckCircle2,
+  Printer,
+  Lock,
+  Unlock,
+  Key,
+  Wifi,
+  Bluetooth
 } from 'lucide-react';
-import { Sale, BusinessProfile, PaymentMethod } from '../types';
+import { Sale, BusinessProfile, PaymentMethod, User } from '../types';
 import { exportToCsv } from '../utils/exportCsv';
+import { printerManager } from '../utils/printerService';
+import { PinAuthModal } from './PinAuthModal';
 
 interface SalesTabProps {
   business: BusinessProfile;
   selectedDate: string;
+  currentUser?: User | null;
+  isPinUnlocked?: boolean;
+  onUnlockPin?: () => void;
+  onLockTerminal?: () => void;
   onOpenRecordSale: () => void;
+  onOpenPrinterModal?: () => void;
   onShowToast: (msg: string) => void;
 }
 
 export const SalesTab: React.FC<SalesTabProps> = ({
   business,
   selectedDate,
+  currentUser = null,
+  isPinUnlocked = false,
+  onUnlockPin,
+  onLockTerminal,
   onOpenRecordSale,
+  onOpenPrinterModal,
   onShowToast,
 }) => {
   const [sales, setSales] = useState<Sale[]>([]);
@@ -41,6 +59,9 @@ export const SalesTab: React.FC<SalesTabProps> = ({
   const [methodFilter, setMethodFilter] = useState<string>('All');
   const [dateFilter, setDateFilter] = useState<'SELECTED_DATE' | 'ALL_TIME'>('SELECTED_DATE');
   const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
+  const [showPinModal, setShowPinModal] = useState(false);
+
+  const isStaff = currentUser?.role === 'CASHIER' || currentUser?.role === 'STAFF';
 
   useEffect(() => {
     fetchSales();
@@ -167,8 +188,69 @@ export const SalesTab: React.FC<SalesTabProps> = ({
     }
   };
 
+  const handlePrintAccountingSalesRecord = () => {
+    if (filteredSales.length === 0) {
+      onShowToast('No sales records to print for this selection.');
+      return;
+    }
+    const slip = printerManager.formatAccountingSalesSlip(business, filteredSales, selectedDate);
+    printerManager.printToThermalWindow(slip, `${business.name} Sales Accounting Record`);
+    onShowToast('Dispatched sales record to thermal receipt printer!');
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
+      {/* Staff PIN Lock Status Bar (Role-Based Access) */}
+      {isStaff && (
+        <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row items-center justify-between gap-3 text-xs transition-all ${
+          isPinUnlocked 
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
+            : 'bg-amber-50 border-amber-200 text-amber-900'
+        }`}>
+          <div className="flex items-center gap-2.5">
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold ${
+              isPinUnlocked ? 'bg-emerald-200 text-emerald-800' : 'bg-amber-200 text-amber-800'
+            }`}>
+              {isPinUnlocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+            </div>
+            <div>
+              <span className="font-extrabold block text-sm">
+                {isPinUnlocked 
+                  ? `Sales Terminal Unlocked for ${currentUser?.name || 'Staff'}` 
+                  : 'Sales Register Locked — PIN Authentication Required'}
+              </span>
+              <span className="text-[11px] opacity-80">
+                {isPinUnlocked
+                  ? `Staff role: ${currentUser?.role?.replace('_', ' ')} · Ready to record sales`
+                  : 'Cashier members must enter their 4-digit PIN to access register & record transactions'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {!isPinUnlocked ? (
+              <button
+                type="button"
+                onClick={() => setShowPinModal(true)}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+              >
+                <Key className="w-3.5 h-3.5" />
+                <span>Enter Cashier PIN (9012)</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onLockTerminal}
+                className="px-3 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-100 text-emerald-800 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>Lock Terminal</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Top Banner & KPI summary */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -181,25 +263,54 @@ export const SalesTab: React.FC<SalesTabProps> = ({
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500">
-            Audit itemized receipts, cashier registers, customer phone logs, and export table data to CSV for business accounting.
+            Audit itemized receipts, cashier registers, customer phone logs, and export or print sales records for business accounting.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Connect BT/WiFi Printer Button */}
+          {onOpenPrinterModal && (
+            <button
+              onClick={onOpenPrinterModal}
+              className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-xs cursor-pointer"
+              title="Connect Bluetooth or Wi-Fi ESC/POS thermal receipt printer"
+            >
+              <Printer className="w-4 h-4 text-slate-600" />
+              <span>BT / Wi-Fi Printer</span>
+            </button>
+          )}
+
+          {/* Print Accounting Sales Record Slip Button */}
+          <button
+            onClick={handlePrintAccountingSalesRecord}
+            disabled={filteredSales.length === 0}
+            className="flex items-center gap-2 px-3.5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50"
+            title="Print thermal accounting sales record slip directly to connected BT/Wi-Fi printer"
+          >
+            <Printer className="w-4 h-4 text-blue-700" />
+            <span>Print Accounting Record</span>
+          </button>
+
           {/* Export to CSV Button */}
           <button
             onClick={handleExportCsv}
             disabled={filteredSales.length === 0}
-            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-2 px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 rounded-xl text-xs sm:text-sm font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50"
             title="Download formatted CSV spreadsheet of sales transactions for accounting"
           >
             <Download className="w-4 h-4 text-emerald-700" />
-            <span>Export Sales CSV</span>
+            <span className="hidden sm:inline">Export CSV</span>
           </button>
 
           {/* Record New Sale Action */}
           <button
-            onClick={onOpenRecordSale}
+            onClick={() => {
+              if (isStaff && !isPinUnlocked) {
+                setShowPinModal(true);
+              } else {
+                onOpenRecordSale();
+              }
+            }}
             className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold transition-all shadow-md shadow-emerald-700/20 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -207,6 +318,19 @@ export const SalesTab: React.FC<SalesTabProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Cashier PIN Unlock Modal */}
+      <PinAuthModal
+        isOpen={showPinModal}
+        onClose={() => setShowPinModal(false)}
+        user={currentUser}
+        targetActionName="Sales Register Access"
+        onSuccess={() => {
+          if (onUnlockPin) onUnlockPin();
+          setShowPinModal(false);
+          onShowToast(`Cashier ${currentUser?.name || ''} authenticated via PIN!`);
+        }}
+      />
 
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

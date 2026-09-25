@@ -1,6 +1,6 @@
 {
   "name": "Remix Wing AI - Business Management & POS Platform",
-  "description": "Retail POS, inventory, sales tracking, expenses, cash reconciliation, staff management, and WhatsApp reporting with user login and backend for VPS deployment.",
+  "description": "KORA is the modern retail operating system that connects POS, payments, inventory, expenses, reconciliation, staff, and automated business reporting in one platform.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

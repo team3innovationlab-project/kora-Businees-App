@@ -11,9 +11,13 @@ import {
   History,
   Share2,
   Zap,
-  RefreshCw
+  RefreshCw,
+  Camera,
+  Printer
 } from 'lucide-react';
 import { DailyReconciliation, BusinessProfile, User } from '../types';
+import { ScanReconciliationModal, ScanResult } from './ScanReconciliationModal';
+import { printerManager } from '../utils/printerService';
 
 interface ReconciliationTabProps {
   business: BusinessProfile;
@@ -22,6 +26,7 @@ interface ReconciliationTabProps {
   onReconciliationSaved: () => void;
   onShowToast: (msg: string) => void;
   onOpenWhatsAppModal?: () => void;
+  onOpenPrinterModal?: () => void;
 }
 
 export const ReconciliationTab: React.FC<ReconciliationTabProps> = ({
@@ -31,6 +36,7 @@ export const ReconciliationTab: React.FC<ReconciliationTabProps> = ({
   onReconciliationSaved,
   onShowToast,
   onOpenWhatsAppModal,
+  onOpenPrinterModal,
 }) => {
   const [loading, setLoading] = useState(false);
   const [reconciliation, setReconciliation] = useState<DailyReconciliation | null>(null);
@@ -42,12 +48,31 @@ export const ReconciliationTab: React.FC<ReconciliationTabProps> = ({
   const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [autoSendWhatsApp, setAutoSendWhatsApp] = useState(true);
+  const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [dispatchResult, setDispatchResult] = useState<{
     messageId: string;
     recipients: string[];
     timestamp: string;
   } | null>(null);
   const [isQuickSending, setIsQuickSending] = useState(false);
+
+  const handleScanExtracted = (scan: ScanResult) => {
+    if (scan.type === 'momo') {
+      setCountedMomo(prev => +(prev + scan.amount).toFixed(2));
+      setNotes(prev => {
+        const entry = `[Scanned ${scan.provider} ${business.currency} ${scan.amount.toFixed(2)} Ref: ${scan.reference}]`;
+        return prev ? `${prev}\n${entry}` : entry;
+      });
+      onShowToast(`Scanned ${scan.provider} alert of ${business.currency} ${scan.amount.toFixed(2)} applied to Mobile Money!`);
+    } else {
+      setCountedCash(prev => +(prev + scan.amount).toFixed(2));
+      setNotes(prev => {
+        const entry = `[Scanned Receipt/Slip ${business.currency} ${scan.amount.toFixed(2)} Ref: ${scan.reference}]`;
+        return prev ? `${prev}\n${entry}` : entry;
+      });
+      onShowToast(`Scanned Cash Receipt of ${business.currency} ${scan.amount.toFixed(2)} applied to Physical Cash!`);
+    }
+  };
 
   useEffect(() => {
     fetchReconciliation();
@@ -185,6 +210,25 @@ export const ReconciliationTab: React.FC<ReconciliationTabProps> = ({
           </span>
 
           <button
+            onClick={async () => {
+              try {
+                const salesRes = await fetch(`/api/sales?date=${selectedDate}`);
+                const sales = salesRes.ok ? await salesRes.json() : [];
+                const slip = printerManager.formatAccountingSalesSlip(business, sales, selectedDate, reconciliation);
+                printerManager.printToThermalWindow(slip, `${business.name} Daily Reconciliation Slip`);
+                onShowToast('Dispatched reconciliation accounting slip to receipt printer!');
+              } catch (e) {
+                onShowToast('Failed to print reconciliation slip.');
+              }
+            }}
+            className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border border-slate-200"
+            title="Print daily cash reconciliation slip to Bluetooth / Wi-Fi receipt printer"
+          >
+            <Printer className="w-3.5 h-3.5 text-slate-600" />
+            <span>Print to Thermal Printer</span>
+          </button>
+
+          <button
             onClick={handleQuickAutoSend}
             disabled={isQuickSending}
             className="px-3 py-1.5 rounded-xl bg-[#00a884] hover:bg-[#008f70] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer disabled:opacity-50"
@@ -300,11 +344,22 @@ export const ReconciliationTab: React.FC<ReconciliationTabProps> = ({
 
         {/* Right: Actual Counted Input (6 Cols) */}
         <div className="lg:col-span-6 bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
-              2. Actual Physical Counts ({selectedDate})
-            </h2>
-            <span className="text-xs text-slate-400">Counted by cashier / manager</span>
+          <div className="flex items-center justify-between border-b border-slate-200 pb-3 flex-wrap gap-2">
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500">
+                2. Actual Physical Counts ({selectedDate})
+              </h2>
+              <span className="text-xs text-slate-400">Counted by cashier / manager</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsScanModalOpen(true)}
+              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+            >
+              <Camera className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Scan MoMo SMS / Receipt</span>
+            </button>
           </div>
 
           <div className="space-y-3">
@@ -427,6 +482,14 @@ export const ReconciliationTab: React.FC<ReconciliationTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Camera MoMo & Receipt Reconciliation Scanner Modal */}
+      <ScanReconciliationModal
+        isOpen={isScanModalOpen}
+        onClose={() => setIsScanModalOpen(false)}
+        onScanExtracted={handleScanExtracted}
+        currency={business.currency}
+      />
     </div>
   );
 };

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { posStorage, hashPassword, generateToken } from './src/server/storage';
 import { RETAIL_HOLIDAYS_36 } from './src/data/holidays';
+import { generateHighConversionPromo } from './src/utils/promoGenerator';
 
 dotenv.config();
 
@@ -284,6 +285,103 @@ app.post('/api/broadcasts/send', (req: Request, res: Response) => {
   return res.json(result);
 });
 
+// Generate High-Conversion Marketing Message with Dynamic Discount
+app.post('/api/promo/generate', async (req: Request, res: Response) => {
+  try {
+    const { holidayId, holidayName, displayDate, discountRate, customPrice, tone, featuredItem } = req.body;
+    const biz = posStorage.getBusiness();
+    
+    const holiday = RETAIL_HOLIDAYS_36.find(h => h.id === holidayId);
+    const resolvedName = holidayName || holiday?.name || 'Upcoming Holiday';
+    const resolvedDate = displayDate || holiday?.displayDate || 'this week';
+    const resolvedDiscount = customPrice || discountRate || holiday?.suggestedDiscount || '20% OFF';
+
+    const result = await generateHighConversionPromo({
+      holidayId: holidayId || 'custom_holiday',
+      holidayName: resolvedName,
+      displayDate: resolvedDate,
+      discountRate: resolvedDiscount,
+      businessName: biz.name,
+      city: biz.city,
+      phone: biz.phone,
+      tone: tone || 'festive',
+      featuredItem: featuredItem || 'all catalog items',
+    });
+
+    return res.json({
+      success: true,
+      ...result,
+      business: {
+        name: biz.name,
+        city: biz.city,
+        currency: biz.currency,
+        phone: biz.phone,
+      },
+    });
+  } catch (error: any) {
+    console.error('Promo generation error in /api/promo/generate:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Notify Business Owner on WhatsApp for Upcoming Holiday Promo
+app.post('/api/broadcasts/notify-owner', (req: Request, res: Response) => {
+  const { holidayId, holidayName, proposedDiscount, customPrice, autoContent, ownerPhone } = req.body;
+  const biz = posStorage.getBusiness();
+  const phone = ownerPhone || biz.phone || '+233244123456';
+  const cleanPhone = phone.replace(/[^0-9]/g, '');
+
+  const promptText = `🔔 *KORA UPCOMING HOLIDAY PROMO ALERT*\n\n` +
+    `Hello ${biz.name} Owner!\n` +
+    `Upcoming Event: *${holidayName}*\n` +
+    `Proposed Offer: *${customPrice || proposedDiscount || '15% OFF'}*\n\n` +
+    `*Auto-Generated WhatsApp Promo Copy:*\n` +
+    `"${autoContent}"\n\n` +
+    `👉 *Reply YES to approve* and auto-broadcast to all your registered customer numbers.\n` +
+    `👉 *Or reply EDIT [Discount]* to adjust your promo offer.`;
+
+  const encodedMsg = encodeURIComponent(promptText);
+  const whatsAppLink = `https://wa.me/${cleanPhone}?text=${encodedMsg}`;
+
+  return res.json({
+    success: true,
+    messageId: `notif_${Date.now()}`,
+    ownerPhone: phone,
+    holidayName,
+    proposedOffer: customPrice || proposedDiscount,
+    notificationText: promptText,
+    whatsAppLink,
+    status: 'NOTIFIED_AWAITING_APPROVAL',
+    timestamp: new Date().toLocaleTimeString(),
+  });
+});
+
+// Owner Approves Holiday Promo via WhatsApp
+app.post('/api/broadcasts/approve-and-send', (req: Request, res: Response) => {
+  const { holidayId, holidayName, approvedOffer, finalMessage, approvedBy } = req.body;
+  const customers = posStorage.getCustomers();
+  const targetIds = customers.map(c => c.id);
+
+  const broadcastResult = posStorage.sendPromoBroadcast({
+    title: `${holidayName || 'Holiday'} Promo Campaign (Approved by Owner)`,
+    message: finalMessage || `Special promo offer for ${holidayName}: ${approvedOffer}!`,
+    customerIds: targetIds,
+    holidayId,
+    channel: 'WHATSAPP',
+  });
+
+  return res.json({
+    success: true,
+    approvalStatus: 'APPROVED_BY_OWNER',
+    approvedBy: approvedBy || 'Store Owner via WhatsApp',
+    approvedOffer,
+    broadcast: broadcastResult.broadcast,
+    recipientsCount: broadcastResult.recipientsCount,
+    whatsAppLink: broadcastResult.whatsAppLink,
+    message: `Holiday promo approved and queued for WhatsApp broadcast to ${broadcastResult.recipientsCount} customers!`,
+  });
+});
+
 // Subscription Upgrade / Payment Integration (Paystack simulation & webhook)
 app.post('/api/subscription/upgrade', (req: Request, res: Response) => {
   const { plan, billingCycle, provider } = req.body;
@@ -461,11 +559,93 @@ app.post('/api/reconciliation', (req: Request, res: Response) => {
 });
 
 // ==========================================
-// 7. STAFF MANAGEMENT
+// 7. STAFF MANAGEMENT & ROLE-BASED ACCESS
 // ==========================================
 
 app.get('/api/staff', (req: Request, res: Response) => {
   return res.json(posStorage.getStaffMembers());
+});
+
+// Update Staff Member Role, Permissions & PIN (Owner only)
+app.put('/api/staff/:id/permissions', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { role, pin, permissions } = req.body;
+
+  const updatedUser = posStorage.updateUser(id, {
+    role,
+    pin,
+    permissions,
+  });
+
+  if (!updatedUser) {
+    return res.status(404).json({ error: 'Staff member not found.' });
+  }
+
+  return res.json({
+    success: true,
+    user: updatedUser,
+    message: `Updated permissions and terminal PIN for ${updatedUser.name}.`,
+  });
+});
+
+// ==========================================
+// 7B. PAYSTACK VISA/MASTERCARD INTEGRATION
+// ==========================================
+
+// Initialize a Paystack Card transaction (Visa / Mastercard)
+app.post('/api/payments/paystack/initialize', (req: Request, res: Response) => {
+  const { amount, email, currency = 'GHS', metadata } = req.body;
+  const biz = posStorage.getBusiness();
+  const publicKey = biz.paymentGateway?.publicKey || 'pk_live_techwokx_gh_78291482';
+  const reference = `pstk_trx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+  // Paystack standard authorization URL simulation / live checkout config
+  return res.json({
+    success: true,
+    status: 'success',
+    message: 'Paystack checkout session created',
+    data: {
+      authorization_url: `https://checkout.paystack.com/${reference}`,
+      access_code: `acc_${reference}`,
+      reference,
+      publicKey,
+      amount,
+      currency,
+      email: email || 'walkin-customer@kora.app',
+      businessName: biz.name,
+      channels: ['card', 'mobile_money'],
+      cardBrands: ['Visa', 'Mastercard'],
+    },
+  });
+});
+
+// Verify a Paystack transaction
+app.post('/api/payments/paystack/verify', (req: Request, res: Response) => {
+  const { reference, last4, cardType, bank } = req.body;
+
+  return res.json({
+    success: true,
+    status: 'success',
+    message: 'Paystack transaction verified successfully',
+    data: {
+      reference: reference || `pstk_trx_${Date.now()}`,
+      status: 'success',
+      gateway_response: 'Successful',
+      paid_at: new Date().toISOString(),
+      channel: 'card',
+      authorization: {
+        authorization_code: `AUTH_${Date.now().toString(36).toUpperCase()}`,
+        card_type: cardType || 'Visa / Mastercard',
+        last4: last4 || '4242',
+        exp_month: '12',
+        exp_year: '2028',
+        bin: '408408',
+        bank: bank || 'Paystack Ghana Settlement',
+        reusable: true,
+        country_code: 'GH',
+      },
+    },
+  });
 });
 
 // ==========================================

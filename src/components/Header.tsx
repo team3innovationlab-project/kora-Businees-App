@@ -15,7 +15,8 @@ import {
   PlusCircle,
   CreditCard,
   Building2,
-  Check
+  Check,
+  Printer
 } from 'lucide-react';
 import { User, BusinessProfile } from '../types';
 
@@ -30,6 +31,7 @@ interface HeaderProps {
   unreadAlertsCount: number;
   onOpenBusinessSetup: () => void;
   onOpenWhatsAppReport: () => void;
+  onOpenPrinter?: () => void;
   onOpenAlerts: () => void;
   onOpenVpsGuide: () => void;
   onOpenAuth: () => void;
@@ -277,6 +279,18 @@ export const Header: React.FC<HeaderProps> = ({
             <PlusCircle className="w-3.5 h-3.5 text-teal-400" />
             <span>+ Onboard Business</span>
           </button>
+
+          {/* Receipt Printer (BT / Wi-Fi) Quick Action */}
+          {onOpenPrinter && (
+            <button
+              onClick={onOpenPrinter}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#142e3b] hover:bg-[#1a3b4c] text-slate-300 hover:text-white text-xs font-semibold border border-[#20475b] transition-all cursor-pointer shadow-sm"
+              title="Receipt Printer Settings (Bluetooth / Wi-Fi)"
+            >
+              <Printer className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Printer</span>
+            </button>
+          )}
 
           {/* WhatsApp Report Button */}
           <button

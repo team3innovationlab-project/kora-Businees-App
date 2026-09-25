@@ -599,6 +599,25 @@ class PosStorage {
     return this.data.users.map(({ passwordHash, pin, ...safeUser }) => safeUser);
   }
 
+  public updateUser(
+    id: string,
+    updates: Partial<User & { pin?: string; permissions?: any }>
+  ): User | null {
+    const user = this.data.users.find((u) => u.id === id);
+    if (!user) return null;
+    if (updates.name !== undefined) user.name = updates.name;
+    if (updates.email !== undefined) user.email = updates.email;
+    if (updates.role !== undefined) user.role = updates.role;
+    if (updates.phone !== undefined) user.phone = updates.phone;
+    if (updates.pin !== undefined) user.pin = updates.pin;
+    if (updates.permissions !== undefined) {
+      user.permissions = { ...user.permissions, ...updates.permissions };
+    }
+    this.saveData(this.data);
+    const { passwordHash, pin, ...safeUser } = user;
+    return safeUser;
+  }
+
   public createUser(userData: {
     name: string;
     email: string;
@@ -606,7 +625,17 @@ class PosStorage {
     role: User['role'];
     phone?: string;
     pin?: string;
+    permissions?: any;
   }): User {
+    const defaultPerms = {
+      canViewDashboard: userData.role === 'BUSINESS_OWNER' || userData.role === 'MANAGER',
+      canManageExpenses: userData.role === 'BUSINESS_OWNER' || userData.role === 'MANAGER',
+      canPerformReconciliation: userData.role === 'BUSINESS_OWNER' || userData.role === 'MANAGER',
+      canManagePaymentMethods: userData.role === 'BUSINESS_OWNER',
+      canManageStock: userData.role === 'BUSINESS_OWNER' || userData.role === 'MANAGER',
+      canManageStaff: userData.role === 'BUSINESS_OWNER',
+    };
+
     const newUser = {
       id: `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       name: userData.name,
@@ -614,7 +643,8 @@ class PosStorage {
       role: userData.role,
       phone: userData.phone || '',
       passwordHash: hashPassword(userData.password),
-      pin: userData.pin || '1234',
+      pin: userData.pin || (userData.role === 'CASHIER' ? '9012' : '1234'),
+      permissions: userData.permissions || defaultPerms,
       avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80',
       createdAt: new Date().toISOString(),
     };
@@ -1153,7 +1183,15 @@ class PosStorage {
         email: u.email,
         phone: u.phone || '',
         role: u.role,
-        pin: u.pin || '****',
+        pin: u.pin || (u.role === 'CASHIER' ? '9012' : '1234'),
+        permissions: u.permissions || {
+          canViewDashboard: u.role === 'BUSINESS_OWNER' || u.role === 'MANAGER',
+          canManageExpenses: u.role === 'BUSINESS_OWNER' || u.role === 'MANAGER',
+          canPerformReconciliation: u.role === 'BUSINESS_OWNER' || u.role === 'MANAGER',
+          canManagePaymentMethods: u.role === 'BUSINESS_OWNER',
+          canManageStock: u.role === 'BUSINESS_OWNER' || u.role === 'MANAGER',
+          canManageStaff: u.role === 'BUSINESS_OWNER',
+        },
         status: 'ACTIVE',
         totalSalesCount: staffSales.length,
         totalSalesRevenue: totalRevenue,
